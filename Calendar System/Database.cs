@@ -1,7 +1,9 @@
 ﻿using MySql.Data.MySqlClient;
+using Org.BouncyCastle.Tls;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -245,6 +247,97 @@ namespace Calendar_System
             {
                 MessageBox.Show("Error saving event: " + ex.Message);
             }
+        }
+
+        public (List<string> nameList,List<int> IDList) getValidParticipants() {
+            /*  Method: getValidParticipants
+             *      Helper method for meeting1Button_Click. Returns a list of Employees whom
+             *      the manager may select as participants for the metings.
+             *  Author: Samuel Griggs
+             */
+
+            List<string> nList = new List<string>();
+            List<int> IDList = new List<int>();
+
+            MySqlConnection conn = new MySqlConnection(connectionString);
+            try {
+                conn.Open();
+
+                // Query for all employees below the manager
+                String query = "SELECT * FROM 340_calendar_users WHERE isManager = 0";
+
+                MySqlCommand cmd = new MySqlCommand(query, conn);
+
+                MySqlDataReader reader = cmd.ExecuteReader();
+                while (reader.Read()) {
+                    nList.Add(reader.GetString("username"));
+                    IDList.Add(reader.GetInt32("userID"));
+                }
+                reader.Close();
+            }
+            catch (Exception ex) {
+                throw;
+            }
+            conn.Close();
+
+            return (nList, IDList);
+        }
+
+        public void createMeeting(Event ev, List<int> participants) {
+            /*  Method: createMeeting
+             *      Takes an event and participants for it, then creates the meeting and
+             *      participants within the database.
+             *      Stores 'length' in a 2400 format. ie. 1530 = 3:30 PM
+             *  Author: Samuel Griggs
+             */
+            MySqlConnection conn = new MySqlConnection(connectionString);
+            try {
+                conn.Open();
+
+                // Grabs the most recent event entry with the same name
+                string query = "SELECT eventID FROM 340_calendar_event WHERE eventTitle = @name";
+                MySqlCommand cmd = new MySqlCommand(query, conn);
+
+                cmd.Parameters.AddWithValue("@name", ev.Title);
+
+                MySqlDataReader reader = cmd.ExecuteReader();
+                reader.Read();
+                int eventID = reader.GetInt32("eventID");
+                reader.Close();
+
+                // Create the meeting
+                string cmdStr = "INSERT INTO 340_calendar_meeting (length, eventID) VALUES (@len, @ID)";
+                cmd = new MySqlCommand(cmdStr, conn);
+
+                TimeSpan length = ev.EndTime - ev.StartTime;
+                
+
+                cmd.Parameters.AddWithValue("@len", Int32.Parse(length.ToString(@"hhmm")));
+                cmd.Parameters.AddWithValue("@ID", eventID);
+
+                cmd.ExecuteNonQuery();
+
+                // Now insert meeting participants
+                cmdStr = "INSERT INTO 340_calendar_event_participants (eventID, userID) VALUES (@eID, @uID)";
+                cmd = new MySqlCommand(cmdStr, conn);
+
+                cmd.Parameters.AddWithValue("@eID", eventID);
+                //cmd.Parameters.Add("@uID", MySqlDbType.Int32);
+                foreach (int i in participants) {
+                    cmd.Parameters.AddWithValue("@uID", i);
+
+                    cmd.ExecuteNonQuery();
+                    cmd.Parameters.RemoveAt("@uID");
+                }
+                
+
+            }
+            catch (Exception ex) {
+                Debug.WriteLine(ex.StackTrace);
+                throw;
+            }
+            conn.Close();
+
         }
     }
 }   
