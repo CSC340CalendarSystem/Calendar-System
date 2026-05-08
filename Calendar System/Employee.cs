@@ -262,6 +262,12 @@ namespace Calendar_System
             startTimeD.Text = e.StartTime.ToString("hh:mm tt");
             endTimeD.Text = e.EndTime.ToString("hh:mm tt");
             DescriptionD.Text = e.Description;
+
+            //part added by Alex Owens:
+            //only show Edit/Delete buttons if the user owns this event
+            bool userOwnsEvent = db.IsEventOwnedByUser(e.EventID, userID);
+            EditEventB.Visible  = userOwnsEvent;
+            DeleteEventB.Visible = userOwnsEvent;
         }
         //sends user to add event panel
         private void addEventB_Click(object sender, EventArgs e)
@@ -325,21 +331,153 @@ namespace Calendar_System
             addEventBox.Hide();
             selectedDayBox.Show();
         }
-        //user clicks confirm after filling out edit event form
+
+
+        //user clicks the Edit Event button while viewing a meeting's details
+        //also pre fills the edit form with the current event's data
+        //author: Alex Owens
         private void editEventB_Click(object sender, EventArgs e)
         {
+             if (currentEvent == null) return;
+
+            //(users may not edit events they did not create)
+            if (!db.IsEventOwnedByUser(currentEvent.EventID, userID))
+            {
+                MessageBox.Show("You cannot edit an event that was assigned to you by a manager.");
+                return;
+            }
+
+            //pre-fill the edit fields with the existing event data
+            textBox8.Text = currentEvent.Title;
+            textBox7.Text = currentEvent.Description;
+            textBox6.Text = currentEvent.StartTime.ToString("h:mm tt");
+            textBox5.Text = currentEvent.EndTime.ToString("h:mm tt");
+
+            //for updating the date label
+            editingDateL.Text = currentEvent.StartTime.ToString("M/d/yyyy");
+
+            //for witching to the edit panel
             selectedMeetingBox.Hide();
             selectedDayBox.Hide();
             addEventBox.Hide();
             editEventBox.Show();
         }
-        //user clicks delete event button
+        //when user clicks Confirm on the edit form, validate and save changes
+        //author: Alex Owens
+        private void saveEditBtn_Click(object sender, EventArgs e)
+        {
+            if (currentEvent == null) return;
+
+            string title       = textBox8.Text.Trim();
+            string description = textBox7.Text.Trim();
+
+            //parsing start/end times: keep the original date
+            DateTime startInput, endInput;
+            if (!DateTime.TryParse(textBox6.Text.Trim(), out startInput))
+            {
+                MessageBox.Show("Invalid start time. Please use a format like 9:00 AM.");
+                return;
+            }
+            if (!DateTime.TryParse(textBox5.Text.Trim(), out endInput))
+            {
+                MessageBox.Show("Invalid end time. Please use a format like 10:00 AM.");
+                return;
+            }
+
+            DateTime startTime = currentEvent.StartTime.Date.Add(startInput.TimeOfDay);
+            DateTime endTime   = currentEvent.StartTime.Date.Add(endInput.TimeOfDay);
+
+            //for validation
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                MessageBox.Show("Title is required.");
+                return;
+            }
+            if (endTime <= startTime)
+            {
+                MessageBox.Show("End time must be after start time.");
+                return;
+            }
+
+            //for checking for time conflicts with other events on the same day
+            List<Event> events = db.GetEventsForUserOnDate(userID, selectedDate);
+            foreach (Event ev in events)
+            {
+                //event itself being edited doesnt count in this check
+                if (ev.EventID == currentEvent.EventID) continue;
+
+                if (startTime < ev.EndTime && endTime > ev.StartTime)
+                {
+                    MessageBox.Show("Time conflict with another event.");
+                    return;
+                }
+            }
+
+            //saving to database
+            db.UpdateEvent(currentEvent.EventID, title, startTime, endTime, description);
+
+            //events cache refreshed
+            allEvents = db.GetEventsForUserInMonth(userID, currentDateTime.Month, currentDateTime.Year);
+
+            //currentEvent changed to reflect new values
+            currentEvent.Title       = title;
+            currentEvent.Description = description;
+            currentEvent.StartTime   = startTime;
+            currentEvent.EndTime     = endTime;
+
+            //ui refresh
+            UpdateCalendar();
+            LoadMeetingsForSelectedDate();
+
+            MessageBox.Show("Event updated successfully");
+
+            //lastly, return to the day view
+            editEventBox.Hide();
+            selectedDayBox.Show();
+        }
+        //when User clicks Cancel on the edit form, go back to day view without saving
+        //author: Alex Owens
+        private void editCancel_Click(object sender, EventArgs e)
+        {
+            editEventBox.Hide();
+            selectedDayBox.Show();
+        }
+        //user clicks the Delete Event button while viewing a meeting's details
+        //author: Alex Owens
         private void deleteEventB_Click(object sender, EventArgs e)
         {
-            DialogResult result = MessageBox.Show("Are you sure you want to delete this meeting?", "Confirm Delete", MessageBoxButtons.YesNo);
-            if (result == DialogResult.Yes) {
-                //delete meeting code here
-                MessageBox.Show("Meeting deleted.");
+            if (currentEvent == null) return;
+
+            //(users may not delete events they did not create)
+            if (!db.IsEventOwnedByUser(currentEvent.EventID, userID))
+            {
+                MessageBox.Show("You cannot delete an event that was assigned to you by a manager.");
+                return;
+            }
+
+            DialogResult result = MessageBox.Show(
+                $"Are you sure you want to delete \"{currentEvent.Title}\"?",
+                "Confirm Delete",
+                MessageBoxButtons.YesNo);
+
+            if (result == DialogResult.Yes)
+            {
+                db.DeleteEvent(currentEvent.EventID);
+
+                //refresh events cache
+                allEvents = db.GetEventsForUserInMonth(userID, currentDateTime.Month, currentDateTime.Year);
+
+                //refresh UI
+                UpdateCalendar();
+                LoadMeetingsForSelectedDate();
+
+                MessageBox.Show("Event deleted successfully.");
+
+                //lastly, return to the day view
+                selectedMeetingBox.Hide();
+                selectedDayBox.Show();
+
+                currentEvent = null;
             }
         }
         //user clicks previous month button
