@@ -248,6 +248,113 @@ namespace Calendar_System
                 MessageBox.Show("Error saving event: " + ex.Message);
             }
         }
+        
+        //
+        //returns true if the event was created by this user(not manager assigned meeting)
+        //employees may only edit/delete events they personally created
+        //manager-created meetings have a corresponding row in 340_calendar_meeting (employee ones dont)
+        //author: Alex Owens
+        public bool IsEventOwnedByUser(int eventID, int userID)
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                {
+                    conn.Open();
+
+                    //(a manager scheduled meeting will have a row in 340_calendar_meeting, an employee created one wont)
+                    string meetingCheckQuery = @"SELECT COUNT(*)
+                                                 FROM `340_calendar_meeting`
+                                                 WHERE eventID = @eventID";
+
+                    MySqlCommand cmd = new MySqlCommand(meetingCheckQuery, conn);
+                    cmd.Parameters.AddWithValue("@eventID", eventID);
+
+                    int meetingCount = Convert.ToInt32(cmd.ExecuteScalar());
+
+                    conn.Close();
+
+                    return meetingCount == 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error checking event ownership: " + ex.Message);
+                return false;
+            }
+        }
+
+        //for updating an existing events details in the database
+        //author: Alex Owens
+        public void UpdateEvent(int eventID, string title, DateTime startTime, DateTime endTime, string description)
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                {
+                    conn.Open();
+
+                    string query = @"UPDATE `340_calendar_event`
+                                     SET eventTitle = @title,
+                                         startTime  = @start,
+                                         endTime    = @end,
+                                         description = @desc
+                                     WHERE eventID = @eventID";
+
+                    MySqlCommand cmd = new MySqlCommand(query, conn);
+
+                    cmd.Parameters.AddWithValue("@title",   title);
+                    cmd.Parameters.AddWithValue("@start",   startTime);
+                    cmd.Parameters.AddWithValue("@end",     endTime);
+                    cmd.Parameters.AddWithValue("@desc",    description);
+                    cmd.Parameters.AddWithValue("@eventID", eventID);
+
+                    cmd.ExecuteNonQuery();
+
+                    conn.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error updating event: " + ex.Message);
+            }
+        }
+
+        //for deleting an event and its participant records from the database
+        //author: Alex Owens
+        public void DeleteEvent(int eventID)
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                {
+                    conn.Open();
+
+                    //for deleting participants first
+                    string deleteParticipantsQuery = @"DELETE FROM `340_calendar_event_participants`
+                                                       WHERE eventID = @eventID";
+
+                    MySqlCommand cmd = new MySqlCommand(deleteParticipantsQuery, conn);
+                    cmd.Parameters.AddWithValue("@eventID", eventID);
+                    cmd.ExecuteNonQuery();
+
+                    //event itself deleted
+                    string deleteEventQuery = @"DELETE FROM `340_calendar_event`
+                                                WHERE eventID = @eventID";
+
+                    MySqlCommand cmd2 = new MySqlCommand(deleteEventQuery, conn);
+                    cmd2.Parameters.AddWithValue("@eventID", eventID);
+                    cmd2.ExecuteNonQuery();
+
+                    conn.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error deleting event: " + ex.Message);
+            }
+        }
+
 
         public (List<string> nameList,List<int> IDList) getValidParticipants() {
             /*  Method: getValidParticipants
